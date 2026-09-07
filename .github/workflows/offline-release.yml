@@ -1,5 +1,5 @@
 name: Sync upstream and offline release
-# ci-smoke: trigger
+# ci-smoke: trigger independent-main release test
 
 # Thin overlay repo: does NOT keep a full duckdb/duckdb-ui tree.
 # Build = clone upstream + apply ./overlay + mirror assets + compile.
