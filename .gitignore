@@ -1,0 +1,10 @@
+# Thin overlay fork — no full upstream tree in-repo.
+tmp/
+.DS_Store
+*.duckdb_extension
+build/
+local_vcpkg_installation/
+work/
+fork-work/
+.specstory/
+.cursorindexingignore

@@ -1,0 +1,256 @@
+/* Local theme overlays — VS Code / DevTools Dark+ via shell design tokens.
+ * Served as /dd-ui-fork-theme-local.css
+ * Preview: .\scripts\dev_theme.ps1 -CssOnly  then hard-refresh (or incognito)
+ *
+ * Why not invert?
+ *   Invert made the UI pure black and never matched Dark+.
+ * Why override .t0ok310?
+ *   The shell already has an official dark host (._6v5jze0), but MDThemes is
+ *   disabled so the UI always mounts .t0ok310 (light tokens). We remap those
+ *   tokens under html[data-dd-ui-theme="dark"].
+ *
+ * Palette:
+ *   bg           #1e1e1e
+ *   bg-elevated  #252526
+ *   bg-highlight #2a2d2e
+ *   fg           #d4d4d4
+ *   tag/blue     #569cd6
+ *   attr/cyan    #9cdcfe
+ *   string/peach #ce9178
+ *   comment      #6a9955
+ *   selection    #264f78
+ */
+
+:root {
+  --dd-ui-bg: #1e1e1e;
+  --dd-ui-bg-elevated: #252526;
+  --dd-ui-bg-highlight: #2a2d2e;
+  --dd-ui-fg: #d4d4d4;
+  --dd-ui-fg-muted: #858585;
+  --dd-ui-tag: #569cd6;
+  --dd-ui-attr: #9cdcfe;
+  --dd-ui-string: #ce9178;
+  --dd-ui-comment: #6a9955;
+  --dd-ui-selection: #264f78;
+  --dd-ui-accent: #569cd6;
+}
+
+.dd-ui-fork-theme-row {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 8px;
+}
+
+#dd-ui-fork-theme-btn {
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  opacity: 0.85;
+}
+
+html[data-dd-ui-theme="dark"] #dd-ui-fork-theme-btn {
+  color: #569cd6;
+  background: rgba(86, 156, 214, 0.22);
+  opacity: 1;
+}
+
+#dd-ui-fork-theme-btn:hover {
+  opacity: 1;
+  background: rgba(86, 156, 214, 0.18);
+}
+
+html[data-dd-ui-theme="dark"] #dd-ui-fork-theme-btn:hover {
+  background: rgba(86, 156, 214, 0.35);
+}
+
+#dd-ui-fork-theme-btn:focus-visible {
+  outline: 2px solid var(--dd-ui-accent);
+  outline-offset: 1px;
+}
+
+#dd-ui-fork-theme-btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  stroke: currentColor;
+}
+
+html[data-dd-ui-theme="dark"] {
+  color-scheme: dark;
+  background-color: var(--dd-ui-bg);
+}
+
+html[data-dd-ui-theme="dark"] body {
+  background-color: var(--dd-ui-bg) !important;
+  color: var(--dd-ui-fg);
+}
+
+html[data-dd-ui-theme="dark"] ::selection {
+  background: var(--dd-ui-selection);
+  color: var(--dd-ui-fg);
+}
+
+/* Kill legacy invert from older extension binaries; tokens drive the look. */
+html[data-dd-ui-theme="dark"] #app,
+html[data-dd-ui-theme="dark"] #app img,
+html[data-dd-ui-theme="dark"] #app picture,
+html[data-dd-ui-theme="dark"] #app video,
+html[data-dd-ui-theme="dark"] #app canvas,
+html[data-dd-ui-theme="dark"] #app iframe {
+  filter: none !important;
+  background-color: transparent;
+}
+
+/* Official dark host deltas (._6v5jze0) + Dark+ charcoal / accents. */
+html[data-dd-ui-theme="dark"] .t0ok310,
+html[data-dd-ui-theme="dark"] ._6v5jze0 {
+  --wdf1tn2m: #569cd6;
+  --wdf1tn2n: #569cd6;
+  --wdf1tn39: #d4d4d4;
+  --wdf1tn3b: #d4d4d4;
+  --wdf1tn45: #1e1e1e;
+  --wdf1tn46: #180e0a;
+  --wdf1tn47: #1e1e1e;
+  --wdf1tn48: #252526;
+  --wdf1tn49: #252526;
+  --wdf1tn4a: #2a2d2e;
+  --wdf1tn4b: #1e1e1e;
+  --wdf1tn4c: #252526;
+  --wdf1tn4d: #252526;
+  --wdf1tn4e: #3e3e42;
+  --wdf1tn4f: #d4d4d4;
+  --wdf1tn4g: rgba(0, 0, 0, 0.6);
+  --wdf1tn4h: rgba(0, 0, 0, 0.5);
+  --wdf1tn4i: #212245;
+  --wdf1tn4j: #383b77;
+  --wdf1tn4k: #383b77;
+  --wdf1tn4l: #3d3e96;
+  --wdf1tn4m: #212245;
+  --wdf1tn4n: #383b77;
+  --wdf1tn4o: #02353f;
+  --wdf1tn4p: #044247;
+  --wdf1tn4q: #451a03;
+  --wdf1tn4r: #78350f;
+  --wdf1tn4s: #3a1815;
+  --wdf1tn4t: #772926;
+  --wdf1tn4u: rgba(0, 0, 0, 0.6);
+  --wdf1tn4v: rgba(255, 255, 255, 0.15);
+  --wdf1tn4w: rgba(255, 255, 255, 0.2);
+  --wdf1tn4x: rgba(255, 255, 255, 0.2);
+  --wdf1tn4y: rgba(255, 255, 255, 0.3);
+  --wdf1tn4z: rgba(255, 255, 255, 0.3);
+  --wdf1tn50: rgba(255, 255, 255, 0.45);
+  --wdf1tn51: rgba(255, 255, 255, 0.45);
+  --wdf1tn52: rgba(255, 255, 255, 0.6);
+  --wdf1tn53: #8f9eea;
+  --wdf1tn55: #afc0f2;
+  --wdf1tn56: #cdd9f8;
+  --wdf1tn57: #ff6467;
+  --wdf1tn58: #ffa2a2;
+  --wdf1tn5a: #53dbc9;
+  --wdf1tn5b: #d4d4d4;
+  --wdf1tn5c: #cccccc;
+  --wdf1tn5d: #858585;
+  --wdf1tn5e: #858585;
+  --wdf1tn5f: #569cd6;
+  --wdf1tn5g: #569cd6;
+  --wdf1tn5h: #53dbc9;
+  --wdf1tn5i: #ce9178;
+  --wdf1tn5j: #ffa2a2;
+  --wdf1tn5k: #6fb3f7;
+  --wdf1tn5l: #f9fafb;
+  --wdf1tn5m: #ffa05c;
+  --wdf1tn5n: #7c8a99;
+  --wdf1tn5o: #c084fc;
+  --wdf1tn5p: #6dbf7e;
+  --wdf1tn5q: #e5a455;
+  --wdf1tn5r: #7c8a99;
+  --wdf1tn5s: #9eaab5;
+  --wdf1tn5t: rgba(126, 138, 153, 0.65);
+  --wdf1tn5u: #fef3c7;
+  --wdf1tn5v: #fcd34d;
+  --wdf1tn5w: #f0f4fd;
+  --wdf1tn5x: #f0f4fd;
+  --wdf1tn5y: #f0fdfa;
+  --wdf1tn5z: #fffbeb;
+  --wdf1tn60: #fef2f2;
+}
+
+/* SQL / editor syntax → Dark+ */
+html[data-dd-ui-theme="dark"] .syntax-keyword {
+  color: #569cd6 !important;
+}
+html[data-dd-ui-theme="dark"] .syntax-name {
+  color: #9cdcfe !important;
+}
+html[data-dd-ui-theme="dark"] .syntax-string,
+html[data-dd-ui-theme="dark"] .syntax-string2 {
+  color: #ce9178 !important;
+}
+html[data-dd-ui-theme="dark"] .syntax-number {
+  color: #b5cea8 !important;
+}
+html[data-dd-ui-theme="dark"] .syntax-comment {
+  color: #6a9955 !important;
+}
+html[data-dd-ui-theme="dark"] .syntax-operator,
+html[data-dd-ui-theme="dark"] .syntax-punctuation {
+  color: #d4d4d4 !important;
+}
+html[data-dd-ui-theme="dark"] .syntax-type,
+html[data-dd-ui-theme="dark"] .syntax-class-name {
+  color: #4ec9b0 !important;
+}
+html[data-dd-ui-theme="dark"] .syntax-function {
+  color: #dcdcaa !important;
+}
+html[data-dd-ui-theme="dark"] .syntax-bool,
+html[data-dd-ui-theme="dark"] .syntax-atom {
+  color: #569cd6 !important;
+}
+
+/* CodeMirror caret stays black from the light theme; force white on dark. */
+html[data-dd-ui-theme="dark"] .cm-content {
+  caret-color: #ffffff !important;
+}
+html[data-dd-ui-theme="dark"] .cm-cursor,
+html[data-dd-ui-theme="dark"] .cm-cursor-primary {
+  border-left-color: #ffffff !important;
+}
+html[data-dd-ui-theme="dark"] .cm-fat-cursor {
+  background-color: #ffffff !important;
+  color: #1e1e1e !important;
+}
+html[data-dd-ui-theme="dark"] input,
+html[data-dd-ui-theme="dark"] textarea,
+html[data-dd-ui-theme="dark"] [contenteditable="true"] {
+  caret-color: #ffffff !important;
+}
+
+html[data-dd-ui-theme="dark"] *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+html[data-dd-ui-theme="dark"] *::-webkit-scrollbar-track {
+  background: var(--dd-ui-bg);
+}
+html[data-dd-ui-theme="dark"] *::-webkit-scrollbar-thumb {
+  background: #424242;
+  border-radius: 4px;
+}
+html[data-dd-ui-theme="dark"] *::-webkit-scrollbar-thumb:hover {
+  background: #4f4f4f;
+}

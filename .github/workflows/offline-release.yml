@@ -1,0 +1,502 @@
+name: Sync upstream and offline release
+# ci-smoke: trigger
+
+# Thin overlay repo: does NOT keep a full duckdb/duckdb-ui tree.
+# Build = clone upstream + apply ./overlay + mirror assets + compile.
+#
+# Schedule (04:00 Asia/Shanghai): if duckdb/duckdb-ui main moved since last
+# offline-latest release notes, rebuild. Push / workflow_dispatch always build.
+
+on:
+  schedule:
+    - cron: "0 20 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: offline-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DUCKDB_VERSION: v1.5.5
+  CI_TOOLS_VERSION: v1.5-variegata
+  VCPKG_COMMIT: 84bab45d415d22042bd0b9081aea57f362da3f35
+  UPSTREAM_REPO: duckdb/duckdb-ui
+  UPSTREAM_REF: main
+
+jobs:
+  sync:
+    name: Check upstream / decide build
+    runs-on: ubuntu-latest
+    if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
+    outputs:
+      should_build: ${{ steps.result.outputs.should_build }}
+      upstream_sha: ${{ steps.result.outputs.upstream_sha }}
+    steps:
+      - name: Resolve upstream SHA and build gate
+        id: result
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          UPSTREAM_SHA=$(gh api "repos/${UPSTREAM_REPO}/commits/${UPSTREAM_REF}" --jq .sha)
+          echo "upstream_sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
+          echo "Upstream ${UPSTREAM_REPO}@${UPSTREAM_REF} = $UPSTREAM_SHA"
+
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "Non-schedule run (${{ github.event_name }}): build."
+            exit 0
+          fi
+
+          BODY=""
+          if gh release view offline-latest >/dev/null 2>&1; then
+            BODY=$(gh release view offline-latest --json body -q .body)
+          fi
+          if echo "$BODY" | grep -q "Upstream-SHA: ${UPSTREAM_SHA}"; then
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo "offline-latest already built against $UPSTREAM_SHA; skip."
+          else
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "Upstream moved or no prior SHA marker; will build."
+          fi
+
+  mirror-assets:
+    needs: sync
+    if: needs.sync.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Mirror UI assets (static crawl)
+        run: |
+          python3 scripts/mirror_ui_assets.py \
+            --remote https://ui.duckdb.org \
+            --out dist/ui-assets \
+            --max-assets 500
+
+      - name: Optional Playwright capture
+        continue-on-error: true
+        run: |
+          pip install playwright
+          python3 -m playwright install --with-deps chromium
+          python3 scripts/mirror_ui_assets.py \
+            --remote https://ui.duckdb.org \
+            --out dist/ui-assets \
+            --playwright \
+            --max-assets 800
+
+      - name: Pack assets
+        run: |
+          test -f dist/ui-assets/index.html
+          test -f dist/ui-assets/config
+          mkdir -p dist/ui-assets
+          cp -f scripts/theme/* dist/ui-assets/
+          cp -f scripts/fork/* dist/ui-assets/
+          test -f dist/ui-assets/dd-ui-fork-theme-local.css
+          test -f dist/ui-assets/dd-ui-fork-overlays.js
+          test -f dist/ui-assets/dd-ui-fork-i18n-zh-CN.json
+          tar -C dist -czf dist/ui-assets.tar.gz ui-assets
+          python3 - <<'PY'
+          import hashlib, pathlib
+          p = pathlib.Path("dist/ui-assets.tar.gz")
+          digest = hashlib.sha256(p.read_bytes()).hexdigest()
+          pathlib.Path("dist/ui-assets.tar.gz.sha256").write_text(f"{digest}  {p.name}\n")
+          print(digest, p.stat().st_size)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-assets
+          path: |
+            dist/ui-assets.tar.gz
+            dist/ui-assets.tar.gz.sha256
+            dist/ui-assets/mirror-manifest.json
+
+  build-linux:
+    name: Build UI extension (linux_amd64)
+    needs: sync
+    if: needs.sync.outputs.should_build == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      GEN: ninja
+      BUILD_SHELL: "0"
+      DUCKDB_PLATFORM: linux_amd64
+      SKIP_TESTS: "1"
+      VCPKG_TARGET_TRIPLET: x64-linux
+      VCPKG_HOST_TRIPLET: x64-linux
+      VCPKG_BINARY_SOURCES: "clear;http,https://vcpkg-cache.duckdb.org,read"
+    steps:
+      - name: Checkout fork (overlay)
+        uses: actions/checkout@v4
+        with:
+          path: fork
+
+      - name: Checkout upstream duckdb-ui
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ env.UPSTREAM_REF }}
+          path: work
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Apply fork overlay
+        run: |
+          chmod +x fork/scripts/apply_overlay.sh fork/scripts/ci_prepare_build.sh
+          FORK_ROOT=fork WORK_ROOT=work bash fork/scripts/ci_prepare_build.sh
+          # Build from work/ as workspace root for subsequent steps
+          echo "WORK_ROOT=${{ github.workspace }}/work" >> "$GITHUB_ENV"
+
+      - name: Install build dependencies
+        working-directory: work
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build ccache cmake git curl zip unzip tar \
+            pkg-config build-essential autoconf automake libtool \
+            python3
+
+      - name: Checkout Extension CI tools
+        uses: actions/checkout@v4
+        with:
+          repository: duckdb/extension-ci-tools
+          ref: ${{ env.CI_TOOLS_VERSION }}
+          path: work/extension-ci-tools
+          fetch-depth: 0
+
+      - name: Checkout DuckDB version
+        working-directory: work
+        run: DUCKDB_GIT_VERSION=${{ env.DUCKDB_VERSION }} make set_duckdb_version
+
+      - name: Setup vcpkg
+        working-directory: work
+        run: |
+          mkdir local_vcpkg_installation
+          cd local_vcpkg_installation
+          git init
+          git remote add origin https://github.com/microsoft/vcpkg.git
+          git fetch --depth 1 origin ${{ env.VCPKG_COMMIT }}
+          git checkout FETCH_HEAD
+          ./bootstrap-vcpkg.sh
+          echo "VCPKG_ROOT=${{ github.workspace }}/work/local_vcpkg_installation" >> "$GITHUB_ENV"
+          echo "VCPKG_TOOLCHAIN_PATH=${{ github.workspace }}/work/local_vcpkg_installation/scripts/buildsystems/vcpkg.cmake" >> "$GITHUB_ENV"
+          echo "${{ github.workspace }}/work/local_vcpkg_installation" >> "$GITHUB_PATH"
+
+      - name: Setup Ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        continue-on-error: true
+        with:
+          key: offline-ui-linux_amd64-${{ env.DUCKDB_VERSION }}-${{ hashFiles('fork/overlay/**') }}
+          restore-keys: offline-ui-linux_amd64-${{ env.DUCKDB_VERSION }}-
+          max-size: 1G
+
+      - name: Re-apply overlay before build
+        run: |
+          bash fork/scripts/apply_overlay.sh "${{ github.workspace }}/work"
+          grep -n ui_assets_path work/src/include/settings.hpp
+
+      - name: Build extension
+        working-directory: work
+        env:
+          VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/work/extension-ci-tools/vcpkg_ports
+          VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/work/extension-ci-tools/toolchains
+        run: |
+          export VCPKG_TOOLCHAIN_PATH="${VCPKG_TOOLCHAIN_PATH}"
+          EXTENSION_NAME=ui make release
+
+      - name: Package extension artifact
+        working-directory: work
+        run: |
+          set -euo pipefail
+          EXT=""
+          for cand in \
+            build/release/extension/ui/ui.duckdb_extension \
+            build/release/extension/ui/Release/ui.duckdb_extension; do
+            if [[ -f "$cand" ]]; then EXT="$cand"; break; fi
+          done
+          if [[ -z "$EXT" ]]; then
+            EXT=$(find build/release/extension/ui -type f -name 'ui.duckdb_extension' | head -n 1)
+          fi
+          test -n "$EXT"
+          echo "Packaging $EXT"
+          # Fail closed: must be the fork binary, not vanilla upstream.
+          grep -a -q ui_assets_path "$EXT"
+          grep -a -q ui_offline "$EXT"
+          mkdir -p dist/ext/stage
+          cp "$EXT" "dist/ext/ui-offline-${DUCKDB_VERSION}-linux_amd64.duckdb_extension"
+          cp "$EXT" dist/ext/stage/ui-offline.duckdb_extension
+          (cd dist/ext/stage && zip -9 "../ui-offline-${DUCKDB_VERSION}-linux_amd64.zip" ui-offline.duckdb_extension)
+          rm -rf dist/ext/stage
+          ls -lah dist/ext
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-extension-linux_amd64
+          if-no-files-found: error
+          path: work/dist/ext/*
+
+  build-windows:
+    name: Build UI extension (windows_amd64)
+    needs: sync
+    if: needs.sync.outputs.should_build == 'true'
+    runs-on: windows-latest
+    env:
+      GEN: ninja
+      BUILD_SHELL: "0"
+      DUCKDB_PLATFORM: windows_amd64
+      SKIP_TESTS: "1"
+      VCPKG_TARGET_TRIPLET: x64-windows-static-release
+      VCPKG_HOST_TRIPLET: x64-windows-static-release
+      VCPKG_BINARY_SOURCES: "clear;http,https://vcpkg-cache.duckdb.org,read"
+    steps:
+      - name: Keep LF line endings
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Checkout fork (overlay)
+        uses: actions/checkout@v4
+        with:
+          path: fork
+
+      - name: Checkout upstream duckdb-ui
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ env.UPSTREAM_REF }}
+          path: work
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Apply fork overlay
+        shell: bash
+        run: |
+          chmod +x fork/scripts/apply_overlay.sh fork/scripts/ci_prepare_build.sh
+          FORK_ROOT=fork WORK_ROOT=work bash fork/scripts/ci_prepare_build.sh
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ninja
+        run: choco install ninja -y
+
+      - name: Checkout Extension CI tools
+        uses: actions/checkout@v4
+        with:
+          repository: duckdb/extension-ci-tools
+          ref: ${{ env.CI_TOOLS_VERSION }}
+          path: work/extension-ci-tools
+          fetch-depth: 0
+
+      - name: Checkout DuckDB version
+        shell: bash
+        working-directory: work
+        run: DUCKDB_GIT_VERSION=${{ env.DUCKDB_VERSION }} make set_duckdb_version
+
+      - name: Setup vcpkg
+        shell: bash
+        working-directory: work
+        run: |
+          set -euo pipefail
+          mkdir -p local_vcpkg_installation
+          cd local_vcpkg_installation
+          git init
+          git remote add origin https://github.com/microsoft/vcpkg.git
+          git fetch --depth 1 origin ${{ env.VCPKG_COMMIT }}
+          git checkout FETCH_HEAD
+          ./bootstrap-vcpkg.bat -disableMetrics
+          echo "VCPKG_ROOT=${GITHUB_WORKSPACE}/work/local_vcpkg_installation" >> "$GITHUB_ENV"
+          echo "VCPKG_TOOLCHAIN_PATH=${GITHUB_WORKSPACE}/work/local_vcpkg_installation/scripts/buildsystems/vcpkg.cmake" >> "$GITHUB_ENV"
+          echo "${GITHUB_WORKSPACE}/work/local_vcpkg_installation" >> "$GITHUB_PATH"
+          echo "VCPKG_OVERLAY_PORTS=${GITHUB_WORKSPACE}/work/extension-ci-tools/vcpkg_ports" >> "$GITHUB_ENV"
+          echo "VCPKG_OVERLAY_TRIPLETS=${GITHUB_WORKSPACE}/work/extension-ci-tools/toolchains" >> "$GITHUB_ENV"
+
+      - name: Hide system OpenSSL (force vcpkg static)
+        shell: bash
+        run: |
+          for d in \
+            "/c/Program Files/OpenSSL" \
+            "/c/Program Files/OpenSSL-Win64" \
+            "/c/Program Files (x86)/OpenSSL" \
+            "/c/Program Files (x86)/OpenSSL-Win64"; do
+            if [ -d "$d" ]; then
+              echo "renaming $d"
+              mv "$d" "${d}.bak-ci" || true
+            fi
+          done
+
+      - name: Setup Ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        continue-on-error: true
+        with:
+          key: offline-ui-windows_amd64-${{ env.DUCKDB_VERSION }}-static-${{ hashFiles('fork/overlay/**') }}
+          restore-keys: offline-ui-windows_amd64-${{ env.DUCKDB_VERSION }}-static-
+          max-size: 1G
+
+      - name: Re-apply overlay before build
+        shell: bash
+        run: |
+          bash fork/scripts/apply_overlay.sh "${GITHUB_WORKSPACE}/work"
+          grep -n ui_assets_path work/src/include/settings.hpp
+
+      - name: Build extension
+        working-directory: work
+        shell: cmd
+        env:
+          EXTENSION_NAME: ui
+          OPENSSL_USE_STATIC_LIBS: "true"
+          EXT_FLAGS: -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DOPENSSL_USE_STATIC_LIBS=TRUE
+        run: |
+          setlocal EnableDelayedExpansion
+          if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
+            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          ) else if exist "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
+            call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          ) else (
+            call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+          )
+          if exist "C:\Program Files\Git\usr\bin\link.exe" (
+            move /Y "C:\Program Files\Git\usr\bin\link.exe" "C:\Program Files\Git\usr\bin\link-git.exe"
+          )
+          make release
+
+      - name: Verify no OpenSSL DLL imports
+        shell: bash
+        working-directory: work
+        run: |
+          set -euo pipefail
+          EXT=""
+          for cand in \
+            build/release/extension/ui/ui.duckdb_extension \
+            build/release/extension/ui/Release/ui.duckdb_extension; do
+            if [[ -f "$cand" ]]; then EXT="$cand"; break; fi
+          done
+          if [[ -z "$EXT" ]]; then
+            EXT=$(find build/release/extension/ui -type f -name 'ui.duckdb_extension' | head -n 1)
+          fi
+          test -n "$EXT"
+          python scripts/check_no_openssl_dlls.py "$EXT"
+
+      - name: Package extension artifact
+        shell: bash
+        working-directory: work
+        run: |
+          set -euo pipefail
+          EXT=""
+          for cand in \
+            build/release/extension/ui/ui.duckdb_extension \
+            build/release/extension/ui/Release/ui.duckdb_extension; do
+            if [[ -f "$cand" ]]; then EXT="$cand"; break; fi
+          done
+          if [[ -z "$EXT" ]]; then
+            EXT=$(find build/release/extension/ui -type f -name 'ui.duckdb_extension' | head -n 1)
+          fi
+          test -n "$EXT"
+          echo "Packaging $EXT"
+          grep -a -q ui_assets_path "$EXT"
+          grep -a -q ui_offline "$EXT"
+          mkdir -p dist/ext/stage
+          cp "$EXT" "dist/ext/ui-offline-${DUCKDB_VERSION}-windows_amd64.duckdb_extension"
+          cp "$EXT" dist/ext/stage/ui-offline.duckdb_extension
+          if command -v zip >/dev/null 2>&1; then
+            (cd dist/ext/stage && zip -9 "../ui-offline-${DUCKDB_VERSION}-windows_amd64.zip" ui-offline.duckdb_extension)
+          else
+            tar -a -cf "dist/ext/ui-offline-${DUCKDB_VERSION}-windows_amd64.zip" -C dist/ext/stage ui-offline.duckdb_extension
+          fi
+          rm -rf dist/ext/stage
+          ls -lah dist/ext
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-extension-windows_amd64
+          if-no-files-found: error
+          path: work/dist/ext/*
+
+  release:
+    needs: [sync, mirror-assets, build-linux, build-windows]
+    if: needs.sync.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download assets artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-assets
+          path: release-assets
+
+      - name: Download linux extension
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-extension-linux_amd64
+          path: release-ext
+
+      - name: Download windows extension
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-extension-windows_amd64
+          path: release-ext
+
+      - name: Stage release files
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          cp release-assets/ui-assets.tar.gz dist/release/
+          cp release-assets/ui-assets.tar.gz.sha256 dist/release/ || true
+          cp release-assets/mirror-manifest.json dist/release/ || true
+          cp release-ext/* dist/release/
+          ls -lah dist/release
+          test -f dist/release/ui-offline-${DUCKDB_VERSION}-linux_amd64.duckdb_extension
+          test -f dist/release/ui-offline-${DUCKDB_VERSION}-windows_amd64.duckdb_extension
+          test -f dist/release/ui-offline-${DUCKDB_VERSION}-linux_amd64.zip
+          test -f dist/release/ui-offline-${DUCKDB_VERSION}-windows_amd64.zip
+
+      - name: Create/Update rolling release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: offline-latest
+          name: Offline UI bundle (rolling)
+          body: |
+            Air-gapped / local-cache DuckDB UI bundle from this fork (DuckDB **${{ env.DUCKDB_VERSION }}**).
+
+            Upstream-SHA: ${{ needs.sync.outputs.upstream_sha }}
+            Upstream: https://github.com/${{ env.UPSTREAM_REPO }}/commit/${{ needs.sync.outputs.upstream_sha }}
+
+            Use a matching DuckDB shell/binary (${{ env.DUCKDB_VERSION }}). The extension is unsigned — start DuckDB with `-unsigned`.
+
+            This repository is an **overlay-only** fork: CI clones `${{ env.UPSTREAM_REPO }}` and applies `overlay/` + `scripts/fork|theme`.
+
+            ---
+
+            ## 中文 · 资源策略
+
+            | 层 | 默认行为 |
+            | --- | --- |
+            | **Release 安装**（`start_ui.ps1`） | 本地已有扩展+assets 则只启动；缺件或 `-Fetch` 才拉 `offline-latest` |
+            | **运行时 asset** | 本地优先 → miss 由扩展回源并缓存；浏览器 CSP 始终拦截 MotherDuck/Datadog |
+            | **气隙**（可选） | `SET ui_offline=true` / `start_ui.ps1 -AirGap` → miss 直接 503，不回源 |
+
+            一键 Windows：`scripts/start_ui.ps1`（持久名为 `ui-offline.*`，LOAD 前临时复制为 `ui.duckdb_extension`）。
+
+            详情：[`OFFLINE.md`](https://github.com/${{ github.repository }}/blob/main/OFFLINE.md) · [`README.md`](https://github.com/${{ github.repository }}/blob/main/README.md)
+          files: dist/release/*
+          draft: false
+          prerelease: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
