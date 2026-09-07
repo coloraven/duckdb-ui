@@ -27,7 +27,7 @@ bash "$FORK_ROOT/scripts/apply_overlay.sh" "$WORK_ROOT"
 # Expose fork scripts used by packaging / asset mirror (theme, fork overlays, start_ui).
 mkdir -p "$WORK_ROOT/scripts"
 # Keep upstream scripts; add/overwrite fork helpers that live only in this repo.
-for name in mirror_ui_assets.py start_ui.ps1 install_ui_assets.ps1 install_ui_assets.sh \
+for name in mirror_ui_assets.py start_ui.ps1 install_ui_assets.sh \
             dev_theme.ps1 apply_overlay.sh apply_overlay.ps1 check_no_openssl_dlls.py; do
   if [[ -f "$FORK_ROOT/scripts/$name" ]]; then
     cp -f "$FORK_ROOT/scripts/$name" "$WORK_ROOT/scripts/$name"

@@ -481,19 +481,10 @@ jobs:
 
             This repository is an **overlay-only** fork: CI clones `${{ env.UPSTREAM_REPO }}` and applies `overlay/` + `scripts/fork|theme`.
 
-            ---
-
-            ## 中文 · 资源策略
-
-            | 层 | 默认行为 |
-            | --- | --- |
-            | **Release 安装**（`start_ui.ps1`） | 本地已有扩展+assets 则只启动；缺件或 `-Fetch` 才拉 `offline-latest` |
-            | **运行时 asset** | 本地优先 → miss 由扩展回源并缓存；浏览器 CSP 始终拦截 MotherDuck/Datadog |
-            | **气隙**（可选） | `SET ui_offline=true` / `start_ui.ps1 -AirGap` → miss 直接 503，不回源 |
-
-            一键 Windows：`scripts/start_ui.ps1`（持久名为 `ui-offline.*`，LOAD 前临时复制为 `ui.duckdb_extension`）。
-
-            详情：[`OFFLINE.md`](https://github.com/${{ github.repository }}/blob/main/OFFLINE.md) · [`README.md`](https://github.com/${{ github.repository }}/blob/main/README.md)
+            Install / runtime policy (local-first, CSP, optional air-gap) and Windows one-liner:
+            [`README.md`](https://github.com/${{ github.repository }}/blob/main/README.md) ·
+            [`README.en.md`](https://github.com/${{ github.repository }}/blob/main/README.en.md) ·
+            [`OFFLINE.md`](https://github.com/${{ github.repository }}/blob/main/OFFLINE.md)
           files: dist/release/*
           draft: false
           prerelease: true

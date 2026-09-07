@@ -11,7 +11,9 @@ CI 在构建时会：
 3. 附带 [`scripts/theme`](scripts/theme)、[`scripts/fork`](scripts/fork) 静态注入资源
 4. 编译并发布滚动标签 [`offline-latest`](../../releases/tag/offline-latest)
 
-面向 DuckDB **v1.5.5**（`-unsigned`）。细节见 [`OFFLINE.md`](OFFLINE.md)。
+面向 DuckDB **v1.5.5**：请使用同版本 CLI，并以 **`-unsigned`** 启动（本扩展未签名）。细节见 [`OFFLINE.md`](OFFLINE.md)。
+
+滚动发布标签：[`offline-latest`](../../releases/tag/offline-latest)（发布说明含当次 `Upstream-SHA:`）。
 
 ---
 
@@ -22,7 +24,8 @@ CI 在构建时会：
 | `overlay/` | 相对上游的补丁文件（完整文件覆盖，不是 git submodule） |
 | `scripts/fork/` | 运行时注入：路径去引号、zh-CN 词表 |
 | `scripts/theme/` | Dark+ 主题 CSS |
-| `scripts/start_ui.ps1` | Windows 一键安装/启动 |
+| `scripts/start_ui.ps1` | Windows 一键安装/启动（含拉取 release） |
+| `scripts/install_ui_assets.sh` | Linux/macOS：从已下载的 tar/zip 安装 assets/扩展 |
 | `scripts/mirror_ui_assets.py` | 镜像 `ui.duckdb.org` 静态资源 |
 | `scripts/apply_overlay.sh` / `.ps1` | 本地把 overlay 打到上游检出 |
 | `.github/workflows/offline-release.yml` | 监测上游 SHA → 叠加构建 → 发布 |
@@ -31,17 +34,17 @@ CI 在构建时会：
 
 ---
 
-## 魔改能力（注入 / 扩展）
+## 资源策略（与 release note 同义）
 
-- **Release 本地优先**：`start_ui.ps1` 无参只启动；缺扩展/静态资源或 `-Fetch` 才拉 `offline-latest`
-- **运行时 asset**：本地优先 → miss 回源 `ui_remote_url` 并写入缓存；浏览器侧 CSP 始终拦截 MotherDuck/Datadog
-- **`ui_offline` / `-AirGap`**：可选气隙（miss 不再回源，503）；日常不必开
-- Windows `ui_local_host=127.0.0.1`
-- 主题切换（Dark+ token，非 invert）
-- 界面汉化（`dd-ui-fork-i18n-zh-CN.json`）
-- 添加数据库 Path 支持 `"..."` / `'...'`
+| 层 | 默认行为 |
+| --- | --- |
+| **Release 安装**（`start_ui.ps1`） | 本地已有扩展 + assets 则只启动；缺件或 `-Fetch` 才拉 `offline-latest` |
+| **运行时 asset** | 本地优先 → miss 由扩展回源并缓存；浏览器 CSP 始终拦截 MotherDuck/Datadog |
+| **气隙**（可选） | `SET ui_offline=true` / `start_ui.ps1 -AirGap` → miss 直接 503，不回源 |
 
-发布物名为 **`ui-offline.*`**，不覆盖官方 `ui.duckdb_extension`。
+其它注入：Windows `ui_local_host=127.0.0.1`、Dark+ 主题、zh-CN 汉化、Path `"..."` / `'...'` 去引号。
+
+发布物名为 **`ui-offline.*`**，不覆盖官方 `ui.duckdb_extension`。手动 `LOAD` 前须把 fork 扩展**复制到私有临时目录并命名为 `ui.duckdb_extension`**（入口名取决于文件名）；`start_ui.ps1` 会自动完成这一步。
 
 ---
 
@@ -52,7 +55,10 @@ curl.exe -fsSL -o start_ui.ps1 https://gh-proxy.com/https://raw.githubuserconten
 powershell -ExecutionPolicy Bypass -File .\start_ui.ps1
 powershell -ExecutionPolicy Bypass -File .\start_ui.ps1 -Fetch    # 强制刷新 offline-latest
 powershell -ExecutionPolicy Bypass -File .\start_ui.ps1 -AirGap   # 气隙：asset miss 不回源
+powershell -ExecutionPolicy Bypass -File .\start_ui.ps1 -NoStart  # 只安装/确保本地文件
 ```
+
+浏览器打开 **`http://127.0.0.1:4213/`**（Windows 上请用 `127.0.0.1`，不要用 `localhost`）。
 
 本地预览主题/汉化（不编译扩展）：
 
