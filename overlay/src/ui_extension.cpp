@@ -6,7 +6,7 @@
 #include "http_server.hpp"
 #include "settings.hpp"
 #include "state.hpp"
-#include "ui_extension.hpp"
+#include "ui_offline_extension.hpp"
 #include "utils/env.hpp"
 #include "utils/helpers.hpp"
 #include "version.hpp"
@@ -180,14 +180,14 @@ static void LoadInternal(DatabaseInstance &instance) {
 }
 
 #ifdef DUCKDB_CPP_EXTENSION_ENTRY
-void UiExtension::Load(ExtensionLoader &loader) { LoadInternal(loader); }
+void UiOfflineExtension::Load(ExtensionLoader &loader) { LoadInternal(loader); }
 #else
-void UiExtension::Load(DuckDB &db) { LoadInternal(*db.instance); }
+void UiOfflineExtension::Load(DuckDB &db) { LoadInternal(*db.instance); }
 #endif
 
-std::string UiExtension::Name() { return "ui_offline"; }
+std::string UiOfflineExtension::Name() { return "ui_offline"; }
 
-std::string UiExtension::Version() const { return UI_EXTENSION_VERSION; }
+std::string UiOfflineExtension::Version() const { return UI_EXTENSION_VERSION; }
 
 } // namespace duckdb
 
@@ -198,7 +198,7 @@ DUCKDB_CPP_EXTENSION_ENTRY(ui_offline, loader) { duckdb::LoadInternal(loader); }
 #else
 DUCKDB_EXTENSION_API void ui_offline_init(duckdb::DatabaseInstance &db) {
   duckdb::DuckDB db_wrapper(db);
-  db_wrapper.LoadExtension<duckdb::UiExtension>();
+  db_wrapper.LoadExtension<duckdb::UiOfflineExtension>();
 }
 #endif
 

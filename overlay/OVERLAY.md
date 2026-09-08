@@ -8,6 +8,7 @@ checkout at CI / local build time via `scripts/apply_overlay.sh`.
 The loadable extension is built as **`ui_offline`** (not upstream `ui`):
 
 - Artifact: `ui_offline.duckdb_extension`
+- Header / class: `ui_offline_extension.hpp` / `UiOfflineExtension` (DuckDB static-link codegen requires `{name}_extension.hpp` and CamelCase `*Extension`)
 - Entrypoint symbol: `ui_offline_duckdb_cpp_init`
 - `LOAD ui_offline` / `LOAD './…/ui_offline.duckdb_extension'` — no temp rename to `ui.*`
 
