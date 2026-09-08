@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.5...3.31.5)
 
-# Set extension name here
-set(TARGET_NAME ui)
+# Fork extension name — must stay distinct from official "ui" (signature / duckdb -ui).
+# Stem must be a C identifier (underscores only); LOAD uses file stem + _duckdb_cpp_init.
+set(TARGET_NAME ui_offline)
 
 # DuckDB's extension distribution supports vcpkg. As such, dependencies can be
 # added in ./vcpkg.json and then used in cmake with find_package. Feel free to

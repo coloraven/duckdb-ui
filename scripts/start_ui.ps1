@@ -6,8 +6,13 @@
 .DESCRIPTION
   Standalone — copy this script anywhere; it does not need the git repo.
 
-  Default (no flags): if ui-offline.duckdb_extension and assets/index.html already
-    exist under the work dir, just start DuckDB + UI. No GitHub download.
+  Default (no flags): if ui_offline.duckdb_extension and assets/index.html already
+    exist, just start DuckDB + UI. No GitHub download.
+
+  Extension install path (never official ui.duckdb_extension):
+    ~/.duckdb/extensions/{version}/windows_amd64/ui_offline.duckdb_extension
+
+  Assets remain under ~/.duckdb/extension_data/ui/assets.
 
   Release pull (extension zip + ui-assets.tar.gz) happens only when:
     - local extension or static assets are missing, or
@@ -17,9 +22,8 @@
     filled from ui_remote_url and cached. Browser third-party calls are CSP-blocked.
     Pass -AirGap to SET ui_offline=true (never remote-fill assets; 503 on miss).
 
-  Persists the fork binary as ui-offline.duckdb_extension (never overwrites the
-  official ui.duckdb_extension). For LOAD, copies into a private temp folder as
-  ui.duckdb_extension (DuckDB entrypoint = file stem).
+  The fork binary entrypoint is ui_offline — LOAD the installed path directly
+  (no temp rename to ui.duckdb_extension).
 
 .PARAMETER Fetch
   Force download/install from the offline-latest release (even if local files exist).
@@ -51,6 +55,9 @@ param(
     [string]$WorkDir = $(Join-Path $env:USERPROFILE ".duckdb\extension_data\ui"),
 
     [string]$DuckDB = "duckdb",
+    # e.g. v1.5.5 — empty = probe duckdb CLI, else default v1.5.5
+    [string]$DuckDBVersion = "",
+    [string]$Platform = "windows_amd64",
 
     [switch]$Fetch,
     [switch]$AirGap,
@@ -61,8 +68,29 @@ param(
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-# Persisted fork binary — must not collide with official ui.duckdb_extension.
-$ForkExtName = "ui-offline.duckdb_extension"
+# Persisted fork binary — must not collide with official ui.duckdb_extension
+# (same extensions/{ver}/{platform} folder is OK; different stem avoids signature clash).
+$ForkExtStem = "ui_offline"
+$ForkExtName = "$ForkExtStem.duckdb_extension"
+
+function Resolve-DuckDbVersion([string]$DuckDBBin, [string]$Override) {
+    if (-not [string]::IsNullOrWhiteSpace($Override)) {
+        $v = $Override.Trim()
+        if ($v -notlike 'v*') { $v = "v$v" }
+        return $v
+    }
+    $cmd = Get-Command $DuckDBBin -ErrorAction SilentlyContinue
+    if ($cmd) {
+        $raw = & $DuckDBBin -csv -noheader -c "SELECT version();" 2>$null
+        $text = if ($raw -is [array]) { ($raw | Out-String) } else { [string]$raw }
+        if ($text -match '(v?\d+\.\d+\.\d+)') {
+            $v = $Matches[1]
+            if ($v -notlike 'v*') { $v = "v$v" }
+            return $v
+        }
+    }
+    return "v1.5.5"
+}
 
 function Get-ProxiedUrl([string]$Url) {
     if ($Direct) { return $Url }
@@ -126,6 +154,9 @@ function Expand-UiAssets([string]$Tarball, [string]$Target) {
 }
 
 function Install-ForkExtension([string]$ZipPath, [string]$DestDir, [string]$DestName) {
+    if ($DestName -eq "ui.duckdb_extension") {
+        throw "Refusing to install fork as official ui.duckdb_extension (signature clash with duckdb -ui)."
+    }
     $stage = Join-Path $env:TEMP ("duckdb-ui-ext-stage-" + $PID)
     if (Test-Path -LiteralPath $stage) {
         Remove-Item -LiteralPath $stage -Recurse -Force
@@ -134,10 +165,16 @@ function Install-ForkExtension([string]$ZipPath, [string]$DestDir, [string]$Dest
     try {
         tar -xf $ZipPath -C $stage
         $candidates = @(
-            (Join-Path $stage "ui-offline.duckdb_extension"),
-            (Join-Path $stage "ui.duckdb_extension")
+            (Join-Path $stage "ui_offline.duckdb_extension"),
+            (Join-Path $stage "ui-offline.duckdb_extension")
         )
         $found = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        if (-not $found) {
+            # Prefer any non-official stem if the zip only has a raw build name.
+            $found = Get-ChildItem -LiteralPath $stage -Filter "*.duckdb_extension" -Recurse |
+                Where-Object { $_.Name -ne "ui.duckdb_extension" } |
+                Select-Object -First 1 -ExpandProperty FullName
+        }
         if (-not $found) {
             $found = Get-ChildItem -LiteralPath $stage -Filter "*.duckdb_extension" -Recurse |
                 Select-Object -First 1 -ExpandProperty FullName
@@ -148,24 +185,11 @@ function Install-ForkExtension([string]$ZipPath, [string]$DestDir, [string]$Dest
         New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
         $dest = Join-Path $DestDir $DestName
         Copy-Item -LiteralPath $found -Destination $dest -Force
-        # Never leave an official-named copy beside the fork binary.
-        $pollute = Join-Path $DestDir "ui.duckdb_extension"
-        if (Test-Path -LiteralPath $pollute) {
-            Remove-Item -LiteralPath $pollute -Force
-            Write-Host "Removed leftover ui.duckdb_extension from $DestDir (avoid official name collision)."
-        }
+        # Never touch official ui.duckdb_extension beside the fork binary.
         return $dest
     } finally {
         Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
     }
-}
-
-function New-TempUiLoadCopy([string]$ForkExtPath) {
-    $loadDir = Join-Path $env:TEMP ("duckdb-ui-fork-load-" + $PID)
-    New-Item -ItemType Directory -Force -Path $loadDir | Out-Null
-    $loadExt = Join-Path $loadDir "ui.duckdb_extension"
-    Copy-Item -LiteralPath $ForkExtPath -Destination $loadExt -Force
-    return @{ Dir = $loadDir; Ext = $loadExt }
 }
 
 function Test-LocalUiReady([string]$AssetsDir, [string]$ExtPath) {
@@ -173,14 +197,27 @@ function Test-LocalUiReady([string]$AssetsDir, [string]$ExtPath) {
     return (Test-Path -LiteralPath $index) -and (Test-Path -LiteralPath $ExtPath)
 }
 
+function Find-LegacyForkExtension([string]$AssetsWorkDir) {
+    foreach ($name in @("ui_offline.duckdb_extension", "ui-offline.duckdb_extension")) {
+        $p = Join-Path $AssetsWorkDir $name
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    return $null
+}
+
 function Find-CachedExtZip([string]$Dir) {
-    $hit = Get-ChildItem -LiteralPath $Dir -Filter "ui-offline-*-windows_amd64.zip" -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1 -ExpandProperty FullName
-    if ($hit) { return $hit }
-    return Get-ChildItem -LiteralPath $Dir -Filter "ui-*-windows_amd64.zip" -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1 -ExpandProperty FullName
+    foreach ($filter in @(
+            "ui_offline-*-windows_amd64.zip",
+            "ui-offline-*-windows_amd64.zip",
+            "ui_offline-*-windows_amd64.duckdb_extension",
+            "ui-offline-*-windows_amd64.duckdb_extension"
+        )) {
+        $hit = Get-ChildItem -LiteralPath $Dir -Filter $filter -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+        if ($hit) { return $hit }
+    }
+    return $null
 }
 
 function Sync-ThemeOverlays([string]$DestAssets) {
@@ -212,7 +249,9 @@ function Install-FromReleaseOrCache {
         $names = Get-ReleaseAssetNames
         $assetsName = Find-AssetName $names @("ui-assets.tar.gz")
         $zipName = Find-AssetName $names @(
+            "ui_offline-*-windows_amd64.zip",
             "ui-offline-*-windows_amd64.zip",
+            "ui_offline-*-windows_amd64.duckdb_extension",
             "ui-*-windows_amd64.zip"
         )
         $extZip = Join-Path $DownloadDir $zipName
@@ -259,12 +298,27 @@ function Stop-ExistingUiServer {
 $offlineSql = if ($AirGap) { "true" } else { "false" }
 $sqlAssetsPath = "~/.duckdb/extension_data/ui/assets"
 
+$resolvedVersion = Resolve-DuckDbVersion $DuckDB $DuckDBVersion
+$extDir = Join-Path $env:USERPROFILE ".duckdb\extensions\$resolvedVersion\$Platform"
+$extFile = Join-Path $extDir $ForkExtName
+
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 New-Item -ItemType Directory -Force -Path $AssetsPath | Out-Null
+New-Item -ItemType Directory -Force -Path $extDir | Out-Null
 
 $downloadDir = Join-Path $WorkDir "download"
 $assetsTgz = Join-Path $downloadDir "ui-assets.tar.gz"
-$extFile = Join-Path $WorkDir $ForkExtName
+
+# Migrate legacy install under extension_data/ui/ → extensions/{ver}/{platform}/
+if (-not (Test-Path -LiteralPath $extFile)) {
+    $legacy = Find-LegacyForkExtension $WorkDir
+    if ($legacy) {
+        Write-Host "Migrating legacy fork extension:"
+        Write-Host "  from: $legacy"
+        Write-Host "  to:   $extFile"
+        Copy-Item -LiteralPath $legacy -Destination $extFile -Force
+    }
+}
 
 $localReady = Test-LocalUiReady $AssetsPath $extFile
 
@@ -284,8 +338,13 @@ if ($Fetch -or -not $localReady) {
     $pack = Install-FromReleaseOrCache -DownloadDir $downloadDir -AssetsTgz $assetsTgz -ForceOnline:$Fetch
     Write-Host "Installing UI assets -> $AssetsPath"
     Expand-UiAssets $pack.AssetsTgz $AssetsPath
-    Write-Host "Installing fork extension as $ForkExtName -> $WorkDir"
-    $extFile = Install-ForkExtension $pack.ExtZip $WorkDir $ForkExtName
+    Write-Host "Installing fork extension as $ForkExtName -> $extDir"
+    Write-Host "  (official duckdb -ui uses ui.duckdb_extension in the same folder; left untouched)"
+    if ($pack.ExtZip -like "*.duckdb_extension") {
+        Copy-Item -LiteralPath $pack.ExtZip -Destination $extFile -Force
+    } else {
+        $extFile = Install-ForkExtension $pack.ExtZip $extDir $ForkExtName
+    }
 } else {
     Write-Host "Local UI ready (no online fetch)."
     Write-Host "  assets:    $AssetsPath"
@@ -302,17 +361,17 @@ if (-not (Test-LocalUiReady $AssetsPath $extFile)) {
 Write-Host ""
 Write-Host "Ready:"
 Write-Host "  assets:    $AssetsPath"
-Write-Host "  extension: $extFile  (fork name; not official ui.duckdb_extension)"
+Write-Host "  extension: $extFile"
+Write-Host "  (fork stem ui_offline — not official ui.duckdb_extension)"
 Write-Host "  ui_offline=$offlineSql$(if ($AirGap) { ' (-AirGap)' } else { ' (local-first + miss→cache; CSP on)' })"
 Write-Host ""
 
 if ($NoStart) {
-    Write-Host "NoStart set. To load manually, copy to a private temp folder as ui.duckdb_extension first:"
-    Write-Host "  `$load = Join-Path `$env:TEMP 'duckdb-ui-fork-load'"
-    Write-Host "  New-Item -ItemType Directory -Force -Path `$load | Out-Null"
-    Write-Host "  Copy-Item '$extFile' (Join-Path `$load 'ui.duckdb_extension') -Force"
-    Write-Host "  Set-Location `$load; duckdb -unsigned"
-    Write-Host "  LOAD './ui.duckdb_extension';"
+    $extSql = ($extFile -replace '\\', '/')
+    Write-Host "NoStart set. Manual load:"
+    Write-Host "  duckdb -unsigned"
+    Write-Host "  LOAD '$extSql';"
+    Write-Host "  -- or: LOAD ui_offline;"
     Write-Host "  SET ui_assets_path='$sqlAssetsPath';"
     Write-Host "  SET ui_offline=$offlineSql;"
     Write-Host "  CALL start_ui_server();"
@@ -328,32 +387,14 @@ if (-not $duckdbCmd) {
 # SSE wait cap and the page shows "Connection to DuckDB Lost" in a loop.
 Stop-ExistingUiServer
 
-$loadCopy = New-TempUiLoadCopy $extFile
-$loadExtSql = ($loadCopy.Ext -replace '\\', '/')
-
-$initSql = @"
-LOAD '$loadExtSql';
-SET ui_assets_path='$sqlAssetsPath';
-SET ui_offline=$offlineSql;
-CALL start_ui_server();
-"@
-$initFile = Join-Path $env:TEMP ("duckdb-ui-init-{0}.sql" -f $PID)
-$utf8NoBom = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText($initFile, $initSql, $utf8NoBom)
+$extSql = ($extFile -replace '\\', '/')
+# -cmd runs SQL then keeps reading stdin (unlike -c/-s, which exit and stop the UI server).
+$initSql = "LOAD '$extSql'; SET ui_assets_path='$sqlAssetsPath'; SET ui_offline=$offlineSql; CALL start_ui_server();"
 
 Write-Host "Starting interactive DuckDB (leave this window open while using the UI)..."
-Write-Host "  persisted: $extFile"
-Write-Host "  LOAD from: $($loadCopy.Ext)  (temp copy; stem must be ui)"
+Write-Host "  LOAD: $extFile"
 Write-Host "  Open http://127.0.0.1:4213/  (use 127.0.0.1, not localhost)"
-Write-Host "  $DuckDB -unsigned -init $initFile"
+Write-Host "  $DuckDB -unsigned -cmd <init SQL>"
 Write-Host ""
 
-Push-Location -LiteralPath $loadCopy.Dir
-try {
-    # -init runs the SQL then keeps the session open (unlike -c, which exits and stops the server).
-    & $DuckDB -unsigned -init $initFile
-} finally {
-    Pop-Location
-    Remove-Item -LiteralPath $initFile -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $loadCopy.Dir -Recurse -Force -ErrorAction SilentlyContinue
-}
+& $DuckDB -unsigned -cmd $initSql

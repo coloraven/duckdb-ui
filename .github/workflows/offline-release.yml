@@ -215,7 +215,7 @@ jobs:
           VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/work/extension-ci-tools/toolchains
         run: |
           export VCPKG_TOOLCHAIN_PATH="${VCPKG_TOOLCHAIN_PATH}"
-          EXTENSION_NAME=ui make release
+          EXTENSION_NAME=ui_offline make release
 
       - name: Package extension artifact
         working-directory: work
@@ -223,12 +223,12 @@ jobs:
           set -euo pipefail
           EXT=""
           for cand in \
-            build/release/extension/ui/ui.duckdb_extension \
-            build/release/extension/ui/Release/ui.duckdb_extension; do
+            build/release/extension/ui_offline/ui_offline.duckdb_extension \
+            build/release/extension/ui_offline/Release/ui_offline.duckdb_extension; do
             if [[ -f "$cand" ]]; then EXT="$cand"; break; fi
           done
           if [[ -z "$EXT" ]]; then
-            EXT=$(find build/release/extension/ui -type f -name 'ui.duckdb_extension' | head -n 1)
+            EXT=$(find build/release/extension/ui_offline -type f -name 'ui_offline.duckdb_extension' | head -n 1)
           fi
           test -n "$EXT"
           echo "Packaging $EXT"
@@ -236,9 +236,9 @@ jobs:
           grep -a -q ui_assets_path "$EXT"
           grep -a -q ui_offline "$EXT"
           mkdir -p dist/ext/stage
-          cp "$EXT" "dist/ext/ui-offline-${DUCKDB_VERSION}-linux_amd64.duckdb_extension"
-          cp "$EXT" dist/ext/stage/ui-offline.duckdb_extension
-          (cd dist/ext/stage && zip -9 "../ui-offline-${DUCKDB_VERSION}-linux_amd64.zip" ui-offline.duckdb_extension)
+          cp "$EXT" "dist/ext/ui_offline-${DUCKDB_VERSION}-linux_amd64.duckdb_extension"
+          cp "$EXT" dist/ext/stage/ui_offline.duckdb_extension
+          (cd dist/ext/stage && zip -9 "../ui_offline-${DUCKDB_VERSION}-linux_amd64.zip" ui_offline.duckdb_extension)
           rm -rf dist/ext/stage
           ls -lah dist/ext
 
@@ -358,7 +358,7 @@ jobs:
         working-directory: work
         shell: cmd
         env:
-          EXTENSION_NAME: ui
+          EXTENSION_NAME: ui_offline
           OPENSSL_USE_STATIC_LIBS: "true"
           EXT_FLAGS: -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DOPENSSL_USE_STATIC_LIBS=TRUE
         run: |
@@ -382,12 +382,12 @@ jobs:
           set -euo pipefail
           EXT=""
           for cand in \
-            build/release/extension/ui/ui.duckdb_extension \
-            build/release/extension/ui/Release/ui.duckdb_extension; do
+            build/release/extension/ui_offline/ui_offline.duckdb_extension \
+            build/release/extension/ui_offline/Release/ui_offline.duckdb_extension; do
             if [[ -f "$cand" ]]; then EXT="$cand"; break; fi
           done
           if [[ -z "$EXT" ]]; then
-            EXT=$(find build/release/extension/ui -type f -name 'ui.duckdb_extension' | head -n 1)
+            EXT=$(find build/release/extension/ui_offline -type f -name 'ui_offline.duckdb_extension' | head -n 1)
           fi
           test -n "$EXT"
           python scripts/check_no_openssl_dlls.py "$EXT"
@@ -399,24 +399,24 @@ jobs:
           set -euo pipefail
           EXT=""
           for cand in \
-            build/release/extension/ui/ui.duckdb_extension \
-            build/release/extension/ui/Release/ui.duckdb_extension; do
+            build/release/extension/ui_offline/ui_offline.duckdb_extension \
+            build/release/extension/ui_offline/Release/ui_offline.duckdb_extension; do
             if [[ -f "$cand" ]]; then EXT="$cand"; break; fi
           done
           if [[ -z "$EXT" ]]; then
-            EXT=$(find build/release/extension/ui -type f -name 'ui.duckdb_extension' | head -n 1)
+            EXT=$(find build/release/extension/ui_offline -type f -name 'ui_offline.duckdb_extension' | head -n 1)
           fi
           test -n "$EXT"
           echo "Packaging $EXT"
           grep -a -q ui_assets_path "$EXT"
           grep -a -q ui_offline "$EXT"
           mkdir -p dist/ext/stage
-          cp "$EXT" "dist/ext/ui-offline-${DUCKDB_VERSION}-windows_amd64.duckdb_extension"
-          cp "$EXT" dist/ext/stage/ui-offline.duckdb_extension
+          cp "$EXT" "dist/ext/ui_offline-${DUCKDB_VERSION}-windows_amd64.duckdb_extension"
+          cp "$EXT" dist/ext/stage/ui_offline.duckdb_extension
           if command -v zip >/dev/null 2>&1; then
-            (cd dist/ext/stage && zip -9 "../ui-offline-${DUCKDB_VERSION}-windows_amd64.zip" ui-offline.duckdb_extension)
+            (cd dist/ext/stage && zip -9 "../ui_offline-${DUCKDB_VERSION}-windows_amd64.zip" ui_offline.duckdb_extension)
           else
-            tar -a -cf "dist/ext/ui-offline-${DUCKDB_VERSION}-windows_amd64.zip" -C dist/ext/stage ui-offline.duckdb_extension
+            tar -a -cf "dist/ext/ui_offline-${DUCKDB_VERSION}-windows_amd64.zip" -C dist/ext/stage ui_offline.duckdb_extension
           fi
           rm -rf dist/ext/stage
           ls -lah dist/ext
@@ -461,10 +461,10 @@ jobs:
           cp release-assets/mirror-manifest.json dist/release/ || true
           cp release-ext/* dist/release/
           ls -lah dist/release
-          test -f dist/release/ui-offline-${DUCKDB_VERSION}-linux_amd64.duckdb_extension
-          test -f dist/release/ui-offline-${DUCKDB_VERSION}-windows_amd64.duckdb_extension
-          test -f dist/release/ui-offline-${DUCKDB_VERSION}-linux_amd64.zip
-          test -f dist/release/ui-offline-${DUCKDB_VERSION}-windows_amd64.zip
+          test -f dist/release/ui_offline-${DUCKDB_VERSION}-linux_amd64.duckdb_extension
+          test -f dist/release/ui_offline-${DUCKDB_VERSION}-windows_amd64.duckdb_extension
+          test -f dist/release/ui_offline-${DUCKDB_VERSION}-linux_amd64.zip
+          test -f dist/release/ui_offline-${DUCKDB_VERSION}-windows_amd64.zip
 
       - name: Create/Update rolling release
         uses: softprops/action-gh-release@v2
@@ -480,6 +480,10 @@ jobs:
             Use a matching DuckDB shell/binary (${{ env.DUCKDB_VERSION }}). The extension is unsigned — start DuckDB with `-unsigned`.
 
             This repository is an **overlay-only** fork: CI clones `${{ env.UPSTREAM_REPO }}` and applies `overlay/` + `scripts/fork|theme`.
+
+            Extension artifacts: **`ui_offline.*`** (not `ui.duckdb_extension`). Entrypoint `ui_offline_duckdb_cpp_init`.
+            Install path: `~/.duckdb/extensions/${{ env.DUCKDB_VERSION }}/{platform}/ui_offline.duckdb_extension`.
+            `LOAD ui_offline;` — no temp rename to `ui.*`.
 
             Install / runtime policy (local-first, CSP, optional air-gap) and Windows one-liner:
             [`README.md`](https://github.com/${{ github.repository }}/blob/main/README.md) ·

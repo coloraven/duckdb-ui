@@ -28,15 +28,13 @@ You do **not** need `ui_offline=true` for a fast local UI; CSP already stops the
 4. `/version` mirrored or synthesized so the shell selects local HTTP mode
 5. CI mirrors static assets + publishes with the extension
 6. Fork injects: Dark+ theme, zh-CN dict, Path quote strip (+ ATTACH normalize on `/ddb/run`)
-7. Artifacts named **`ui-offline.*`** (never overwrite official `ui.duckdb_extension`)
+7. Artifacts named **`ui_offline.*`**, installed under `~/.duckdb/extensions/{version}/{platform}/` (never overwrite official `ui.duckdb_extension`); C++ entrypoint is `ui_offline` so `LOAD` needs no temp rename
 
 > Frontend source remains closed; this fork mirrors published CDN assets.
 
 ## Quick start
 
 DuckDB **v1.5.5** + `-unsigned`. Rolling tag: [`offline-latest`](../../releases/tag/offline-latest).
-
-**LOAD caveat:** copy `ui-offline.duckdb_extension` to a private temp dir as `ui.duckdb_extension` before `LOAD` (stem must be `ui`). `start_ui.ps1` does this.
 
 ```powershell
 # Windows — local-first; downloads release only if missing or -Fetch
@@ -47,7 +45,8 @@ DuckDB **v1.5.5** + `-unsigned`. Rolling tag: [`offline-latest`](../../releases/
 ```
 
 ```sql
-LOAD './ui.duckdb_extension';
+LOAD ui_offline;
+-- or: LOAD '~/.duckdb/extensions/v1.5.5/windows_amd64/ui_offline.duckdb_extension';
 SET ui_assets_path='~/.duckdb/extension_data/ui/assets';
 -- optional: SET ui_offline=true;   -- air-gap only
 CALL start_ui_server();
@@ -66,4 +65,4 @@ tar -C dist -czf ui-assets.tar.gz ui-assets
 
 - Hatchling Auth0 silent login is patched in the mirrored bundle (instant fail).
 - CSP is the main fix for “opens after tens of seconds” on networks that cannot reach MotherDuck/Datadog.
-- Details / naming rules: keep fork binary as `ui-offline.*`; never install over the official `ui` extension path used by `duckdb -ui`.
+- Details / naming rules: keep fork binary as `ui_offline.*` under `~/.duckdb/extensions/{ver}/{platform}/`; never install over the official `ui` extension path used by `duckdb -ui`.

@@ -185,7 +185,7 @@ void UiExtension::Load(ExtensionLoader &loader) { LoadInternal(loader); }
 void UiExtension::Load(DuckDB &db) { LoadInternal(*db.instance); }
 #endif
 
-std::string UiExtension::Name() { return "ui"; }
+std::string UiExtension::Name() { return "ui_offline"; }
 
 std::string UiExtension::Version() const { return UI_EXTENSION_VERSION; }
 
@@ -194,15 +194,15 @@ std::string UiExtension::Version() const { return UI_EXTENSION_VERSION; }
 extern "C" {
 
 #ifdef DUCKDB_CPP_EXTENSION_ENTRY
-DUCKDB_CPP_EXTENSION_ENTRY(ui, loader) { duckdb::LoadInternal(loader); }
+DUCKDB_CPP_EXTENSION_ENTRY(ui_offline, loader) { duckdb::LoadInternal(loader); }
 #else
-DUCKDB_EXTENSION_API void ui_init(duckdb::DatabaseInstance &db) {
+DUCKDB_EXTENSION_API void ui_offline_init(duckdb::DatabaseInstance &db) {
   duckdb::DuckDB db_wrapper(db);
   db_wrapper.LoadExtension<duckdb::UiExtension>();
 }
 #endif
 
-DUCKDB_EXTENSION_API const char *ui_version() {
+DUCKDB_EXTENSION_API const char *ui_offline_version() {
   return duckdb::DuckDB::LibraryVersion();
 }
 }

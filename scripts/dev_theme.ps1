@@ -5,11 +5,11 @@
 
 .DESCRIPTION
   Does NOT build the C++ extension. Uses the already-installed fork binary
-  (ui-offline.duckdb_extension from start_ui.ps1).
+  (~/.duckdb/extensions/{ver}/windows_amd64/ui_offline.duckdb_extension from start_ui.ps1).
 
   Flow:
     1) Copy scripts/theme/* and scripts/fork/* → AssetsPath (same as start_ui.ps1)
-    2) Start duckdb -unsigned with that extension (temp copy as ui.duckdb_extension)
+    2) Start duckdb -unsigned and LOAD ui_offline.duckdb_extension directly
     3) Open the UI in the browser
 
   Edit scripts/theme/*.css or scripts/fork/*, re-run this script (or -CssOnly
@@ -42,10 +42,24 @@ param(
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$ForkExtName = "ui-offline.duckdb_extension"
+$ForkExtName = "ui_offline.duckdb_extension"
 $ThemeSrcDir = Join-Path $PSScriptRoot "theme"
 $ForkSrcDir = Join-Path $PSScriptRoot "fork"
 $InstallScript = Join-Path $PSScriptRoot "start_ui.ps1"
+
+function Resolve-DuckDbVersion([string]$DuckDBBin) {
+    $cmd = Get-Command $DuckDBBin -ErrorAction SilentlyContinue
+    if ($cmd) {
+        $raw = & $DuckDBBin -csv -noheader -c "SELECT version();" 2>$null
+        $text = if ($raw -is [array]) { ($raw | Out-String) } else { [string]$raw }
+        if ($text -match '(v?\d+\.\d+\.\d+)') {
+            $v = $Matches[1]
+            if ($v -notlike 'v*') { $v = "v$v" }
+            return $v
+        }
+    }
+    return "v1.5.5"
+}
 
 function Sync-ThemeAssets([string]$DestAssets) {
     New-Item -ItemType Directory -Force -Path $DestAssets | Out-Null
@@ -124,14 +138,6 @@ function Sync-ThemeAssets([string]$DestAssets) {
     }
 }
 
-function New-TempUiLoadCopy([string]$ForkExtPath) {
-    $loadDir = Join-Path $env:TEMP ("duckdb-ui-fork-load-" + $PID)
-    New-Item -ItemType Directory -Force -Path $loadDir | Out-Null
-    $loadExt = Join-Path $loadDir "ui.duckdb_extension"
-    Copy-Item -LiteralPath $ForkExtPath -Destination $loadExt -Force
-    return @{ Dir = $loadDir; Ext = $loadExt }
-}
-
 function Ensure-UiAssets {
     $index = Join-Path $AssetsPath "index.html"
     if (Test-Path -LiteralPath $index) {
@@ -168,11 +174,19 @@ Or re-run with -EnsureAssets
 
 $offlineSql = if ($AirGap) { "true" } else { "false" }
 $sqlAssetsPath = "~/.duckdb/extension_data/ui/assets"
-$extFile = Join-Path $WorkDir $ForkExtName
+$resolvedVersion = Resolve-DuckDbVersion $DuckDB
+$extDir = Join-Path $env:USERPROFILE ".duckdb\extensions\$resolvedVersion\windows_amd64"
+$extFile = Join-Path $extDir $ForkExtName
+if (-not (Test-Path -LiteralPath $extFile)) {
+    foreach ($legacyName in @("ui_offline.duckdb_extension", "ui-offline.duckdb_extension")) {
+        $legacy = Join-Path $WorkDir $legacyName
+        if (Test-Path -LiteralPath $legacy) { $extFile = $legacy; break }
+    }
+}
 
 Write-Host "Assets:  $AssetsPath"
 Write-Host "WorkDir: $WorkDir"
-Write-Host "(extension is not rebuilt — using installed $ForkExtName)"
+Write-Host "(extension is not rebuilt — using installed $extFile)"
 Write-Host ""
 
 Ensure-UiAssets
@@ -232,18 +246,8 @@ function Stop-ExistingUiServer {
 }
 Stop-ExistingUiServer
 
-$loadCopy = New-TempUiLoadCopy $extFile
-$loadExtSql = ($loadCopy.Ext -replace '\\', '/')
-
-$initSql = @"
-LOAD '$loadExtSql';
-SET ui_assets_path='$sqlAssetsPath';
-SET ui_offline=$offlineSql;
-CALL start_ui_server();
-"@
-$initFile = Join-Path $env:TEMP ("duckdb-ui-theme-init-{0}.sql" -f $PID)
-$utf8NoBom = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText($initFile, $initSql, $utf8NoBom)
+$extSql = ($extFile -replace '\\', '/')
+$initSql = "LOAD '$extSql'; SET ui_assets_path='$sqlAssetsPath'; SET ui_offline=$offlineSql; CALL start_ui_server();"
 
 if (-not $NoBrowser) {
     Start-Job -ScriptBlock {
@@ -255,16 +259,8 @@ if (-not $NoBrowser) {
 }
 
 Write-Host "Starting interactive DuckDB (leave this window open while previewing)..."
-Write-Host "  $DuckDB -unsigned -init $initFile"
-Write-Host "  LOAD from: $($loadCopy.Ext)"
+Write-Host "  LOAD: $extFile"
 Write-Host "  Use http://127.0.0.1:4213/ (not localhost) — Origin must match."
 Write-Host ""
 
-Push-Location -LiteralPath $loadCopy.Dir
-try {
-    & $DuckDB -unsigned -init $initFile
-} finally {
-    Pop-Location
-    Remove-Item -LiteralPath $initFile -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $loadCopy.Dir -Recurse -Force -ErrorAction SilentlyContinue
-}
+& $DuckDB -unsigned -cmd $initSql

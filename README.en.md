@@ -36,7 +36,7 @@ Rolling release tag: [`offline-latest`](../../releases/tag/offline-latest) (note
 | **Runtime assets** | Local-first; miss → extension fetches `ui_remote_url` and caches; browser CSP always blocks MotherDuck/Datadog |
 | **Air-gap** (optional) | `SET ui_offline=true` / `start_ui.ps1 -AirGap` → miss returns 503 |
 
-Artifacts are named **`ui-offline.*`** and never overwrite official `ui.duckdb_extension`. Manual `LOAD` requires copying the fork binary into a private temp dir as **`ui.duckdb_extension`** (entrypoint = file stem); `start_ui.ps1` does this for you.
+Artifacts are named **`ui_offline.*`** and install to `~/.duckdb/extensions/{version}/{platform}/ui_offline.duckdb_extension` — never overwrite official `ui.duckdb_extension` (both may coexist; avoids signature clashes). The binary entrypoint is also `ui_offline`, so `LOAD ui_offline` / `LOAD '…/ui_offline.duckdb_extension'` works directly — no rename to `ui.*`.
 
 ```powershell
 .\scripts\start_ui.ps1

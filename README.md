@@ -44,7 +44,7 @@ CI 在构建时会：
 
 其它注入：Windows `ui_local_host=127.0.0.1`、Dark+ 主题、zh-CN 汉化、Path `"..."` / `'...'` 去引号。
 
-发布物名为 **`ui-offline.*`**，不覆盖官方 `ui.duckdb_extension`。手动 `LOAD` 前须把 fork 扩展**复制到私有临时目录并命名为 `ui.duckdb_extension`**（入口名取决于文件名）；`start_ui.ps1` 会自动完成这一步。
+发布物名为 **`ui_offline.*`**，安装到 `~/.duckdb/extensions/{version}/{platform}/ui_offline.duckdb_extension`，不覆盖官方 `ui.duckdb_extension`（同目录可并存，避免签名冲突）。扩展入口名亦为 `ui_offline`，可直接 `LOAD ui_offline` / `LOAD '…/ui_offline.duckdb_extension'`，无需再改名为 `ui.*`。
 
 ---
 
